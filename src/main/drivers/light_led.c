@@ -83,7 +83,7 @@ void ledInit(const statusLedConfig_t *statusLedConfig)
 
 void ledToggle(int led)
 {
-    IOToggle(leds[led]);
+    // IOToggle(leds[led]);
 }
 
 void ledSet(int led, bool on)

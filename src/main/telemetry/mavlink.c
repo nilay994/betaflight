@@ -29,6 +29,8 @@
 
 #include "platform.h"
 
+#define USE_TELEMETRY_MAVLINK
+
 #if defined(USE_TELEMETRY_MAVLINK)
 
 #include "common/maths.h"
@@ -43,6 +45,7 @@
 #include "drivers/accgyro/accgyro.h"
 #include "drivers/sensor.h"
 #include "drivers/time.h"
+#include "drivers/light_led.h"
 
 #include "config/config.h"
 #include "fc/rc_controls.h"
@@ -78,8 +81,8 @@
 #include "common/mavlink.h"
 #pragma GCC diagnostic pop
 
-#define TELEMETRY_MAVLINK_INITIAL_PORT_MODE MODE_TX
-#define TELEMETRY_MAVLINK_MAXRATE 50
+#define TELEMETRY_MAVLINK_INITIAL_PORT_MODE MODE_RXTX
+#define TELEMETRY_MAVLINK_MAXRATE 100
 #define TELEMETRY_MAVLINK_DELAY ((1000 * 1000) / TELEMETRY_MAVLINK_MAXRATE)
 
 extern uint16_t rssi; // FIXME dependency on mw.c
@@ -90,13 +93,55 @@ static const serialPortConfig_t *portConfig;
 static bool mavlinkTelemetryEnabled =  false;
 static portSharing_e mavlinkPortSharing;
 
+static void mavlinkReceive(uint16_t c, void* data) {
+
+    UNUSED(data);
+    mavlink_message_t msg;
+    mavlink_status_t status;
+
+    // toggle led every 10 bytes
+        static uint16_t cnt = 0;
+        cnt ++ ;
+        if (cnt % 500 == 0) {
+            cnt = 0;
+            static bool state = 0;
+            ledSet(0, state);
+            ledSet(1, state);
+            ledSet(2, state);
+            state = !state;
+        }
+
+    if (mavlink_parse_char(MAVLINK_COMM_0, (uint8_t)c, &msg, &status)) {
+
+        
+        switch(msg.msgid) {
+            // setpoint command
+            case 81: {
+                // mavlink_manual_setpoint_t command;
+                // mavlink_msg_manual_setpoint_decode(&msg,&command);
+                // uart_altitude = -command.thrust * 100;
+                // uart_roll = command.roll;   //maybe need normalization but this should be done in the JeVois
+                // uart_pitch = -command.pitch;
+                // uart_yaw = command.yaw;
+                // DEBUG_SET(DEBUG_UART,1,command.time_boot_ms);	
+                // DEBUG_SET(DEBUG_UART,3,uart_altitude);
+                // DEBUG_SET(DEBUG_COMMAND,0,uart_altitude);
+                // DEBUG_SET(DEBUG_COMMAND,1,uart_roll / 3.14 * 180);
+                // DEBUG_SET(DEBUG_COMMAND,2,uart_pitch / 3.14 * 180);
+                // DEBUG_SET(DEBUG_COMMAND,3,uart_yaw / 3.14 * 180);
+                break;
+            }
+        }
+    }
+}
+
 /* MAVLink datastream rates in Hz */
 static const uint8_t mavRates[] = {
-    [MAV_DATA_STREAM_EXTENDED_STATUS] = 2, //2Hz
-    [MAV_DATA_STREAM_RC_CHANNELS] = 5, //5Hz
-    [MAV_DATA_STREAM_POSITION] = 2, //2Hz
-    [MAV_DATA_STREAM_EXTRA1] = 10, //10Hz
-    [MAV_DATA_STREAM_EXTRA2] = 10 //2Hz
+    [MAV_DATA_STREAM_EXTENDED_STATUS] = 100, //2Hz
+    [MAV_DATA_STREAM_RC_CHANNELS] = 100, //5Hz
+    [MAV_DATA_STREAM_POSITION] = 100, //2Hz
+    [MAV_DATA_STREAM_EXTRA1] = 100, //10Hz
+    [MAV_DATA_STREAM_EXTRA2] = 100 //2Hz
 };
 
 #define MAXSTREAMS (sizeof(mavRates) / sizeof(mavRates[0]))
@@ -171,7 +216,7 @@ void configureMAVLinkTelemetryPort(void)
         baudRateIndex = BAUD_57600;
     }
 
-    mavlinkPort = openSerialPort(portConfig->identifier, FUNCTION_TELEMETRY_MAVLINK, NULL, NULL, baudRates[baudRateIndex], TELEMETRY_MAVLINK_INITIAL_PORT_MODE, telemetryConfig()->telemetry_inverted ? SERIAL_INVERTED : SERIAL_NOT_INVERTED);
+    mavlinkPort = openSerialPort(portConfig->identifier, FUNCTION_TELEMETRY_MAVLINK, mavlinkReceive, NULL, baudRates[baudRateIndex], MODE_RXTX, SERIAL_STOPBITS_1);
 
     if (!mavlinkPort) {
         return;
@@ -511,28 +556,30 @@ void mavlinkSendHUDAndHeartbeat(void)
 
 void processMAVLinkTelemetry(void)
 {
-    // is executed @ TELEMETRY_MAVLINK_MAXRATE rate
-    if (mavlinkStreamTrigger(MAV_DATA_STREAM_EXTENDED_STATUS)) {
-        mavlinkSendSystemStatus();
-    }
+//     // is executed @ TELEMETRY_MAVLINK_MAXRATE rate
+//     if (mavlinkStreamTrigger(MAV_DATA_STREAM_EXTENDED_STATUS)) {
+//         mavlinkSendSystemStatus();
+//     }
 
-    if (mavlinkStreamTrigger(MAV_DATA_STREAM_RC_CHANNELS)) {
-        mavlinkSendRCChannelsAndRSSI();
-    }
+//     if (mavlinkStreamTrigger(MAV_DATA_STREAM_RC_CHANNELS)) {
+//         mavlinkSendRCChannelsAndRSSI();
+//     }
 
-#ifdef USE_GPS
-    if (mavlinkStreamTrigger(MAV_DATA_STREAM_POSITION)) {
-        mavlinkSendPosition();
-    }
-#endif
+// #ifdef USE_GPS
+//     if (mavlinkStreamTrigger(MAV_DATA_STREAM_POSITION)) {
+//         mavlinkSendPosition();
+//     }
+// #endif
 
-    if (mavlinkStreamTrigger(MAV_DATA_STREAM_EXTRA1)) {
-        mavlinkSendAttitude();
-    }
+    mavlinkSendAttitude();
 
-    if (mavlinkStreamTrigger(MAV_DATA_STREAM_EXTRA2)) {
-        mavlinkSendHUDAndHeartbeat();
-    }
+    // if (mavlinkStreamTrigger(MAV_DATA_STREAM_EXTRA1)) {
+    //     mavlinkSendAttitude();
+    // }
+
+    // if (mavlinkStreamTrigger(MAV_DATA_STREAM_EXTRA2)) {
+    //     mavlinkSendHUDAndHeartbeat();
+    // }
 }
 
 void handleMAVLinkTelemetry(void)
